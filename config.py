@@ -53,8 +53,8 @@ BASE_POINTS = [
 ]
 
 POINTS = [
-        CAMERAS[0].project_point(BASE_POINTS[0], VIEWS_OFFSETS[0])
-
+    Measurement(CAMERAS[0], CAMERAS[0].project_point(BASE_POINTS[0], VIEWS_OFFSETS[0])),
+    Measurement(CAMERAS[1], CAMERAS[1].project_point(BASE_POINTS[0], VIEWS_OFFSETS[1]))
 ]
 
-print(POINTS)
+print(POINTS[0].merge(POINTS[1], REFERENCES[0]))

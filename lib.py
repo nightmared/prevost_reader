@@ -38,13 +38,13 @@ class Vec3D:
     def __sub__(self, other: Type[Vec3D]):
         return Vec3D(self.x-other.x, self.y-other.y, self.z-other.z)
 
-    # multiplication means only scaling every component by a factor x
+    # multiplication means only scaling every component by a factor x (except z, because it's not supposed to change in the experiments)
     def __mul__(self, factor: float):
-        return Vec3D(self.x * factor, self.y * factor, self.z * factor)
+        return Vec3D(self.x * factor, self.y * factor, self.z)
 
     # same story as the multiplication
     def __truediv__(self, factor: float):
-        return Vec3D(self.x / factor, self.y / factor, self.z / factor)
+        return Vec3D(self.x / factor, self.y / factor, self.z)
 
     def __str__(self):
         return f"""Vec3D({self.x}, {self.y}, {self.z})"""
@@ -66,7 +66,7 @@ class Vec3D:
         if origin is not None:
             obj = self-origin
 
-        if phi is None or phi == 0.0 or phi == -0.0:
+        if phi is None or phi == 0.0 or phi == -0.0 or phi == 0:
             # Plane rotation
             res = Vec3D(obj.x*math.cos(theta)-obj.y*math.sin(theta), obj.x*math.sin(theta)+obj.y*math.cos(theta), obj.z)
         else:
@@ -123,26 +123,20 @@ class Camera:
 
     # Project a point onto the camera screen, given its position in 3D space and the offset applied by the camera wrt to the origin
     def project_point(self, pos: Vec3D, camera_offset: Vec3D) -> Vec3D:
-        # Generate a system of two equations. For this we will have two non parallel planes:
-        a, b, c = 1, 2, 3
-        a_prime, b_prime, c_prime = 2, 3, 7
+        # direction vector
+        # TODO: compute the variation in scaling depending of z
+        theta = self.position.get_coordinates_spherical()[1]
+        vec = ((pos-camera_offset)/self.scaling).rotate_around_origin(-theta, 0)-self.position
+        if abs(vec.z) < config.EPSILON:
+            return AssertionError("The point to project must not be on the same level as the camera")
+        # We are going to use a parametric equation with the position of the camera
+        # solve t so that vec.z*t+self.position.z=0
+        t = -self.position.z/vec.z
+        x = vec.x*t+self.position.x
+        y = vec.y*t+self.position.y
 
-        # The two equations are a.x+b.y+c.z+d=0 and a_prime.x+b_prime.y+c_prime.z+d_prime=0
-        d = -a*pos.x-b*pos.y-c*pos.z
-        d_prime = -a_prime*pos.x-b_prime*pos.y-c_prime*pos.z
-
-        # Solve the system with z=0:
-        # a*x+b*y+d=0 and a_prime*x+b_prime*y+d_prime=0
-        # <=> x=-(b*y+d)/a and a_prime*(-(b*y+d)/a)+b_prime*y+d_prime=0
-        # <=> x=-(b*y+d)/a and y=(-d_prime+a_prime/a*(b*y+d))/b_prime
-        # <=> x=-(b*y+d)/a and y=(a_prime*d-a*d_prime)/(a*b_prime-a_prime*b)
-        # <=> x=(b*(a*d_prime-d*a_prime)/(a*b_prime-b*a_prime)-d)/a and y=(a_prime*d-a*d_prime)/(a*b_prime-a_prime*b)
-        x = (b*(a*d_prime-d*a_prime)/(a*b_prime-b*a_prime)-d)/a
-        y = (a_prime*d-a*d_prime)/(a*b_prime-a_prime*b)
-
-        # Apply the offset and camera scaling
-        return Vec3D(x, y, 0)*self.scaling+camera_offset
-
+        # Apply the offset and camera scaling again
+        return Vec3D(x, y, 0).rotate_around_origin(theta, 0)*self.scaling+camera_offset
 
 
 class Reference:
@@ -198,10 +192,47 @@ class Measurement:
 
     # Take another measurement (from a different camera)
     def merge(self, other: Type[Measurement], ref: Type[Reference]) -> Vec3D:
-        if other.camera == self.camera:
+        if other.camera.number == self.camera.number:
             raise AssertionError("The two measurements come from the same camera !")
-        
 
+        if ref.cam1.number != self.camera.number or ref.cam2.number != other.camera.number:
+            raise AssertionError("The reference use to localize measurements is based on different cameras !")
+
+
+        # correct the offset of each view and scale the position of the object according to the camera scaling factor
+        theta1 = self.camera.position.get_coordinates_spherical()[1]
+        vec1 = ((self.position-ref.offset_cam1)/self.camera.scaling).rotate_around_origin(-theta1, 0)-self.camera.position
+        theta2 = other.camera.position.get_coordinates_spherical()[1]
+        vec2 = ((other.position-ref.offset_cam2)/other.camera.scaling).rotate_around_origin(-theta2, 0)-other.camera.position
+
+        print(vec1, vec2)
+        # This time we can generate the following system:
+        # vec1.x*t1+self.camera.position.x=vec2.x*t2+other.camera.position.x=realx
+        # vec1.y*t1+self.camera.position.y=vec2.y*t2+other.camera.position.y=realy (useless for us)
+        # vec1.z*t1+self.camera.position.z=vec2.z*t2+other.camera.position.z=realz
+        # Great, so let's solve this and get *real_z* ;)
+        if abs(vec1.x) < config.EPSILON:
+            if abs(vec1.x) < config.EPSILON and abs(vec1.y) < config.EPSILON:
+                # We are just under the camera, so we know the x and y coordinates: thoses of the camera
+                if abs(vec2.x) > config.EPSILON:
+                    t2 = (self.camera.position.x-other.camera.position.x)/vec2.x
+                else:
+                    t2 = (self.camera.position.y-other.camera.position.y)/vec2.y
+                realz = vec2.z*t2+other.camera.position.z
+            else:
+                # let's use the y coordinate instead
+                t2 = (vec1.z*(other.camera.position.y-self.camera.position.y)+vec1.y*(other.camera.position.z-self.camera.position.z))/(vec1.y*vec2.z-vec1.z*vec2.y)
+
+                realx = vec2.x*t2+other.camera.position.x
+                realy = vec2.y*t2+other.camera.position.y
+                realz = vec2.z*t2+other.camera.position.z
+        else:
+            t2 = (vec1.z*(other.camera.position.x-self.camera.position.x)+vec1.x*(other.camera.position.z-self.camera.position.z))/(vec1.x*vec2.z-vec1.z*vec2.x)
+            realx = vec2.x*t2+other.camera.position.x
+            realy = vec2.y*t2+other.camera.position.y
+            realz = vec2.z*t2+other.camera.position.z
+
+        return Vec3D(realx, realy, realz)
 
 
 class Fiducial:
