@@ -49,6 +49,9 @@ class Vec3D:
     def __str__(self):
         return f"""Vec3D({self.x}, {self.y}, {self.z})"""
 
+    def __repr__(self):
+        return str(self)
+
     def norm_xy(self):
         return math.sqrt((self.x**2)+(self.y**2))
 
@@ -118,6 +121,29 @@ class Camera:
     def __str__(self):
         return f"""Camera(id={self.number}, position={self.position}, scale_factor={self.scaling})"""
 
+    # Project a point onto the camera screen, given its position in 3D space and the offset applied by the camera wrt to the origin
+    def project_point(self, pos: Vec3D, camera_offset: Vec3D) -> Vec3D:
+        # Generate a system of two equations. For this we will have two non parallel planes:
+        a, b, c = 1, 2, 3
+        a_prime, b_prime, c_prime = 2, 3, 7
+
+        # The two equations are a.x+b.y+c.z+d=0 and a_prime.x+b_prime.y+c_prime.z+d_prime=0
+        d = -a*pos.x-b*pos.y-c*pos.z
+        d_prime = -a_prime*pos.x-b_prime*pos.y-c_prime*pos.z
+
+        # Solve the system with z=0:
+        # a*x+b*y+d=0 and a_prime*x+b_prime*y+d_prime=0
+        # <=> x=-(b*y+d)/a and a_prime*(-(b*y+d)/a)+b_prime*y+d_prime=0
+        # <=> x=-(b*y+d)/a and y=(-d_prime+a_prime/a*(b*y+d))/b_prime
+        # <=> x=-(b*y+d)/a and y=(a_prime*d-a*d_prime)/(a*b_prime-a_prime*b)
+        # <=> x=(b*(a*d_prime-d*a_prime)/(a*b_prime-b*a_prime)-d)/a and y=(a_prime*d-a*d_prime)/(a*b_prime-a_prime*b)
+        x = (b*(a*d_prime-d*a_prime)/(a*b_prime-b*a_prime)-d)/a
+        y = (a_prime*d-a*d_prime)/(a*b_prime-a_prime*b)
+
+        # Apply the offset and camera scaling
+        return Vec3D(x, y, 0)*self.scaling+camera_offset
+
+
 
 class Reference:
     def __init__(self, cam1, offset_cam1, cam2, offset_cam2):
@@ -125,7 +151,6 @@ class Reference:
         self.offset_cam1 = offset_cam1
         self.cam2 = cam2
         self.offset_cam2 = offset_cam2
-        print(self)
 
     def __str__(self):
         return f"""Reference(offset_camera{self.cam1.number}={self.offset_cam1}, offset_camera{self.cam2.number}={self.offset_cam2})"""

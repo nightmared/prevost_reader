@@ -49,8 +49,12 @@ REFERENCES = [
 ]
 
 BASE_POINTS = [
+    Vec3D(0.15, 0.25, 0.4)
 ]
 
 POINTS = [
+        CAMERAS[0].project_point(BASE_POINTS[0], VIEWS_OFFSETS[0])
 
 ]
+
+print(POINTS)
