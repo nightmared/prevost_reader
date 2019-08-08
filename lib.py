@@ -36,7 +36,15 @@ class Vec3D:
         return Vec3D(-self.x, -self.y, -self.z)
 
     def __sub__(self, other: Type[Vec3D]):
-        return self+-other
+        return Vec3D(self.x-other.x, self.y-other.y, self.z-other.z)
+
+    # multiplication means only scaling every component by a factor x
+    def __mul__(self, factor: float):
+        return Vec3D(self.x * factor, self.y * factor, self.z * factor)
+
+    # same story as the multiplication
+    def __truediv__(self, factor: float):
+        return Vec3D(self.x / factor, self.y / factor, self.z / factor)
 
     def __str__(self):
         return f"""Vec3D({self.x}, {self.y}, {self.z})"""
@@ -107,13 +115,20 @@ class Camera:
         self.position = position
         self.scaling = scaling
 
+    def __str__(self):
+        return f"""Camera(id={self.number}, position={self.position}, scale_factor={self.scaling})"""
+
 
 class Reference:
     def __init__(self, cam1, offset_cam1, cam2, offset_cam2):
-            self.cam1 = cam1
-            self.offset_cam1 = offset_cam1
-            self.cam2 = cam2
-            self.offset_cam2 = offset_cam2
+        self.cam1 = cam1
+        self.offset_cam1 = offset_cam1
+        self.cam2 = cam2
+        self.offset_cam2 = offset_cam2
+        print(self)
+
+    def __str__(self):
+        return f"""Reference(offset_camera{self.cam1.number}={self.offset_cam1}, offset_camera{self.cam2.number}={self.offset_cam2})"""
 
     # Create a new reference from two fiducials and the real position of the first one, given two views per fiducial
     @classmethod
@@ -131,24 +146,24 @@ class Reference:
         ### Try to guess the position of the origin
 
         # vector between the two fiducials
-        delta_x_fid, delta_y_fid, _ = (fiducial2[0].position-fiducial1[0].position).get_coordinates()
+        delta_x_fid, delta_y_fid, _ = ((fiducial2[0].position-fiducial1[0].position)/fiducial1[0].camera.scaling).get_coordinates()
         # Sanity check: ensure this is the same fiducial by comparing the vector from the first to the second fiducial in both camera views
-        delta_x_fid_cam1, delta_y_fid_cam1, _ = (fiducial2[1].position-fiducial1[1].position).rotate_around_origin(theta_cam, phi_cam).get_coordinates()
+        delta_x_fid_cam1, delta_y_fid_cam1, _ = ((fiducial2[1].position-fiducial1[1].position)/fiducial1[1].camera.scaling).rotate_around_origin(theta_cam, phi_cam).get_coordinates()
         if abs(delta_x_fid_cam1-delta_x_fid) > config.EPSILON or abs(delta_y_fid_cam1-delta_y_fid) > config.EPSILON:
             raise AssertionError("You must use the same fiducials when trying to establish a reference")
 
         # Offset between the real origin and the origin in the coordinates system of camera1
-        cam1 = fiducial1[0].camera.number
-        offset_cam1 = fiducial1[0].position-fiducial1_real_pos
+        cam1 = fiducial1[0].camera
+        offset_cam1 = fiducial1[0].position-fiducial1_real_pos*fiducial1[0].camera.scaling
         # Offset between the real origin and the origin in the coordinates system of camera2
-        cam2 = fiducial1[1].camera.number
-        offset_cam2 = fiducial1[1].position-fiducial1_real_pos.rotate_around_origin(-theta_cam, -phi_cam)
+        cam2 = fiducial1[1].camera
+        offset_cam2 = fiducial1[1].position-fiducial1_real_pos.rotate_around_origin(-theta_cam, -phi_cam)*fiducial1[1].camera.scaling
 
         return cls(cam1, offset_cam1, cam2, offset_cam2)
 
-                # Return the reference with cameras inverted
-        def __neg__(self):
-            return Vec3D(self.cam2, self.offset_cam2, self.cam1, self.offset_cam1)
+    # Return the reference with cameras inverted
+    def __neg__(self):
+        return Vec3D(self.cam2, self.offset_cam2, self.cam1, self.offset_cam1)
 
 
 class Measurement:
@@ -157,7 +172,7 @@ class Measurement:
         self.position = position
 
     # Take another measurement (from a different camera)
-    def merge(self, other, ref: Reference) -> Vec3D:
+    def merge(self, other: Type[Measurement], ref: Type[Reference]) -> Vec3D:
         if other.camera == self.camera:
             raise AssertionError("The two measurements come from the same camera !")
         
