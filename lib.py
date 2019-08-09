@@ -205,7 +205,6 @@ class Measurement:
         theta2 = other.camera.position.get_coordinates_spherical()[1]
         vec2 = ((other.position-ref.offset_cam2)/other.camera.scaling).rotate_around_origin(-theta2, 0)-other.camera.position
 
-        print(vec1, vec2)
         # This time we can generate the following system:
         # vec1.x*t1+self.camera.position.x=vec2.x*t2+other.camera.position.x=realx
         # vec1.y*t1+self.camera.position.y=vec2.y*t2+other.camera.position.y=realy (useless for us)
@@ -234,9 +233,11 @@ class Measurement:
 
         return Vec3D(realx, realy, realz)
 
+    def __str__(self):
+        return f"""Measurement(camera={self.camera.number}, position={self.position})"""
+
 
 class Fiducial:
     def __init__(self, camera: Type[Camera], position: Type[Vec3D]):
         self.camera = camera
         self.position = position
-

@@ -53,8 +53,13 @@ BASE_POINTS = [
 ]
 
 POINTS = [
-    Measurement(CAMERAS[0], CAMERAS[0].project_point(BASE_POINTS[0], VIEWS_OFFSETS[0])),
-    Measurement(CAMERAS[1], CAMERAS[1].project_point(BASE_POINTS[0], VIEWS_OFFSETS[1]))
+    Measurement(CAMERAS[0], CAMERAS[0].project_point((BASE_POINTS[0]*CAMERAS_SCALES[0])+VIEWS_OFFSETS[0], VIEWS_OFFSETS[0])),
+    Measurement(CAMERAS[1], CAMERAS[1].project_point((BASE_POINTS[0]*CAMERAS_SCALES[1]).rotate_around_origin(CAMERAS_ANGLES[1])+VIEWS_OFFSETS[1], VIEWS_OFFSETS[1]))
 ]
 
+v1 = BASE_POINTS[0]-CAMERAS_POSITIONS[0]
+v2 = BASE_POINTS[0]-CAMERAS_POSITIONS[1]
+print(v1, v2)
+print((POINTS[0].position-VIEWS_OFFSETS[0])/CAMERAS_SCALES[0])
+print(((POINTS[1].position-VIEWS_OFFSETS[0])/CAMERAS_SCALES[1]).rotate_around_origin(CAMERAS_ANGLES[1]))
 print(POINTS[0].merge(POINTS[1], REFERENCES[0]))
