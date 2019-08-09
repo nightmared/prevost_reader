@@ -121,12 +121,11 @@ class Camera:
     def __str__(self):
         return f"""Camera(id={self.number}, position={self.position}, scale_factor={self.scaling})"""
 
-    # Project a point onto the camera screen, given its position in 3D space and the offset applied by the camera wrt to the origin
-    def project_point(self, pos: Vec3D, camera_offset: Vec3D) -> Vec3D:
+    # Project a point onto the camera screen, given its position in 3D space
+    def project_point(self, pos: Vec3D) -> Vec3D:
         # direction vector
         # TODO: compute the variation in scaling depending of z
-        theta = self.position.get_coordinates_spherical()[1]
-        vec = ((pos-camera_offset)/self.scaling).rotate_around_origin(-theta, 0)-self.position
+        vec = pos-self.position
         if abs(vec.z) < config.EPSILON:
             return AssertionError("The point to project must not be on the same level as the camera")
         # We are going to use a parametric equation with the position of the camera
@@ -136,7 +135,8 @@ class Camera:
         y = vec.y*t+self.position.y
 
         # Apply the offset and camera scaling again
-        return Vec3D(x, y, 0).rotate_around_origin(theta, 0)*self.scaling+camera_offset
+        theta = self.position.get_coordinates_spherical()[1]
+        return Vec3D(x, y, 0).rotate_around_origin(theta, 0)*self.scaling
 
 
 class Reference:

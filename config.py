@@ -1,5 +1,11 @@
 from lib import *
 
+# physical device from which to read the measurements
+SERIAL_PORT = '/dev/ttyACM0'
+
+### Physical parameters on the cameras and the fiducials
+
+# The precision to which we want to operate. This parameter is used to consider wether a number is nearing zero (ah, the joys of floating point !).
 EPSILON = 1e-9
 
 CAMERAS_ANGLES = [
@@ -32,6 +38,7 @@ VIEWS_OFFSETS = [
     Vec3D(-0.06, 0.05, 0)
 ]
 
+# known positions of two fiducials
 BASE_FIDUCIALS = [
     Vec3D(0.15, 0.37, 0),
     Vec3D(0.06, 0.18, 0)
@@ -49,17 +56,20 @@ REFERENCES = [
 ]
 
 BASE_POINTS = [
-    Vec3D(0.15, 0.25, 0.4)
+    Vec3D(0.15, 0.25, 0.4),
+    Vec3D(0, 0.03, 0.05),
+    Vec3D(-1.7, 2.55, 0.67),
 ]
 
 POINTS = [
-    Measurement(CAMERAS[0], CAMERAS[0].project_point((BASE_POINTS[0]*CAMERAS_SCALES[0])+VIEWS_OFFSETS[0], VIEWS_OFFSETS[0])),
-    Measurement(CAMERAS[1], CAMERAS[1].project_point((BASE_POINTS[0]*CAMERAS_SCALES[1]).rotate_around_origin(CAMERAS_ANGLES[1])+VIEWS_OFFSETS[1], VIEWS_OFFSETS[1]))
+    Measurement(CAMERAS[0], CAMERAS[0].project_point(BASE_POINTS[0])+VIEWS_OFFSETS[0]),
+    Measurement(CAMERAS[1], CAMERAS[1].project_point(BASE_POINTS[0])+VIEWS_OFFSETS[1]),
+    Measurement(CAMERAS[0], CAMERAS[0].project_point(BASE_POINTS[1])+VIEWS_OFFSETS[0]),
+    Measurement(CAMERAS[1], CAMERAS[1].project_point(BASE_POINTS[1])+VIEWS_OFFSETS[1]),
+    Measurement(CAMERAS[0], CAMERAS[0].project_point(BASE_POINTS[2])+VIEWS_OFFSETS[0]),
+    Measurement(CAMERAS[1], CAMERAS[1].project_point(BASE_POINTS[2])+VIEWS_OFFSETS[1])
 ]
 
-v1 = BASE_POINTS[0]-CAMERAS_POSITIONS[0]
-v2 = BASE_POINTS[0]-CAMERAS_POSITIONS[1]
-print(v1, v2)
-print((POINTS[0].position-VIEWS_OFFSETS[0])/CAMERAS_SCALES[0])
-print(((POINTS[1].position-VIEWS_OFFSETS[0])/CAMERAS_SCALES[1]).rotate_around_origin(CAMERAS_ANGLES[1]))
-print(POINTS[0].merge(POINTS[1], REFERENCES[0]))
+print(BASE_POINTS[0]-POINTS[0].merge(POINTS[1], REFERENCES[0]))
+print(BASE_POINTS[1]-POINTS[2].merge(POINTS[3], REFERENCES[0]))
+print(BASE_POINTS[2]-POINTS[4].merge(POINTS[5], REFERENCES[0]))
