@@ -190,7 +190,7 @@ class Measurement:
         self.camera = camera
         self.position = position
 
-    # Take another measurement (from a different camera)
+    # Take another measurement (from a different camera) and return the "real" position of the object
     def merge(self, other: Type[Measurement], ref: Type[Reference]) -> Vec3D:
         if other.camera.number == self.camera.number:
             raise AssertionError("The two measurements come from the same camera !")
