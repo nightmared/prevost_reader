@@ -8,6 +8,28 @@ class Vec2D:
         self.x = x
         self.y = y
 
+    def norm(self):
+        return math.sqrt((self.x**2)+(self.y**2))
+
+    def distance(self, other: Type[Vec2D]):
+        return (self-other).norm()
+
+    def __add__(self, other: Type[Vec2D]):
+        return Vec2D(self.x+other.x, self.y+other.y)
+
+    def __neg__(self):
+        return Vec2D(-self.x, -self.y)
+
+    def __sub__(self, other: Type[Vec2D]):
+        return Vec2D(self.x-other.x, self.y-other.y)
+
+    def __mul__(self, factor: float):
+        return Vec2D(self.x * factor, self.y * factor)
+
+    # same story as the multiplication
+    def __truediv__(self, factor: float):
+        return Vec2D(self.x / factor, self.y / factor)
+
     def to_Vec3D(self, z) -> Vec3D:
         return Vec3D(self.x, self.y, z)
 
@@ -28,6 +50,10 @@ class Vec3D:
     @classmethod
     def Spherical(cls, r, theta, phi):
         return cls(r*math.cos(theta)*math.cos(phi), r*math.sin(theta)*math.cos(phi), r*math.sin(phi))
+
+    # Just throw away the z component
+    def to_Vec2D(self) -> Type[Vec2D]:
+        return Vec2D(self.x, self.y)
 
     def __add__(self, other: Type[Vec3D]):
         return Vec3D(self.x+other.x, self.y+other.y, self.z+other.z)
@@ -59,7 +85,7 @@ class Vec3D:
         return math.sqrt((self.x**2)+(self.y**2)+(self.z**2))
 
     def distance(self, other: Type[Vec3D]):
-        (self-other).norm()
+        return (self-other).norm()
 
     def rotate_around_origin(self, theta, phi = None, origin = None) -> Vec3D:
         obj = self
@@ -94,7 +120,7 @@ class Vec3D:
         return (r, theta, phi)
 
     # Compute the angle between the two vectors, with regard to the origin
-    def get_angle_with_origin(self, other: Type[Vec3D]) -> Tuple[float, float]:
+    def get_angle(self, other: Type[Vec3D]) -> Tuple[float, float]:
         _, theta1, phi1 = self.get_coordinates_spherical()
         _, theta2, phi2 = other.get_coordinates_spherical()
         theta_res = theta1-theta2
@@ -106,10 +132,17 @@ class Vec3D:
             phi_res = phi_res-2*math.pi
         return (theta_res, phi_res)
 
+    # Move the point along a line to a position with a given z
+    def move_along_z(self, line: Type[Vec3D], z: float):
+        if abs(line.z) < config.EPSILON:
+            return AssertionError("The point to project must not be on the same level as the reference")
+        # We are going to use a parametric equation with the position of the object.
+        # We just need to solve t so that line.z*t+self.position.z=z
+        t = (z-self.z)/line.z
+        x = line.x*t+self.x
+        y = line.y*t+self.y
 
-class BubbleChamber:
-    pass
-
+        return Vec3D(x, y, z)
 
 class Camera:
     # We assume the camera is always oriented towards the origin (0, 0, 0) and we specify its position with regard to this origin
@@ -122,21 +155,19 @@ class Camera:
         return f"""Camera(id={self.number}, position={self.position}, scale_factor={self.scaling})"""
 
     # Project a point onto the camera screen, given its position in 3D space
-    def project_point(self, pos: Vec3D) -> Vec3D:
-        # direction vector
+    def project_point(self, pos: Type[Vec3D]) -> Type[Vec3D]:
         # TODO: compute the variation in scaling depending of z
-        vec = pos-self.position
-        if abs(vec.z) < config.EPSILON:
-            return AssertionError("The point to project must not be on the same level as the camera")
-        # We are going to use a parametric equation with the position of the camera
-        # solve t so that vec.z*t+self.position.z=0
-        t = -self.position.z/vec.z
-        x = vec.x*t+self.position.x
-        y = vec.y*t+self.position.y
+
+        # pos-self.position is the direction vector
+        vec = self.position.move_along_z(pos-self.position, 0.)
 
         # Apply the offset and camera scaling again
         theta = self.position.get_coordinates_spherical()[1]
-        return Vec3D(x, y, 0).rotate_around_origin(theta, 0)*self.scaling
+        return vec.rotate_around_origin(theta, 0)*self.scaling
+
+    # Project a point onto the camera screen, AND apply diffraction effects
+    def project_from_chamber(self, pos: Type[Vec3D]) -> Type[Vec3D]:
+        return self.project_point(pos)
 
 
 class Reference:
@@ -159,7 +190,7 @@ class Reference:
             raise AssertionError("The cameras used must be identical for the two fiducials !")
 
         # Try to compute the rotation between the two cameras, relative to the origin
-        (theta_cam, phi_cam) = fiducial1[0].camera.position.get_angle_with_origin(fiducial1[1].camera.position)
+        (theta_cam, phi_cam) = fiducial1[0].camera.position.get_angle(fiducial1[1].camera.position)
 
 
         ### Try to guess the position of the origin
@@ -186,9 +217,32 @@ class Reference:
 
 
 class Measurement:
-    def __init__(self, camera: Type[Camera], position: Type[Vec2D]):
+    def __init__(self, camera: Type[Camera], position: Type[Vec3D]):
+
+        # Convert the position from the virtual position (aka. *after* refraction) against the glass to the (offseted, and without z-axis information) position:
+        # 1) project the virtual position on the ray that goes from the virtual position to the camera, with a z-value of CHAMBER_DEPTH + GLASS_WIDTH
+        # 2) get the refraction angle
+        # 3) get the refracion angle on the other side
+        # 4) get the (x, y) coordinates of the ray, projected on the back of the chamber (z=0)
+        camera_glass_vec2D = camera.position.to_Vec2D()-position.to_Vec2D()
+        camera_glass_dist2D = camera_glass_vec2D.norm()
+        if camera_glass_dist2D > config.EPSILON:
+            point1 = position.move_along_z(position-camera.position, config.CHAMBER_DEPTH + config.GLASS_WIDTH)
+            theta1 = math.atan(camera_glass_dist2D/config.CAMERA_GLASS_DISTANCE)
+
+            # Snell-Descartes law in action !
+            sin_theta2 = config.AIR_REFRACTIVE_INDEX/config.GLASS_REFRACTIVE_INDEX*math.sin(theta1)
+            point2 = point1 + (camera_glass_vec2D*config.GLASS_WIDTH*math.tan(math.asin(sin_theta2))/camera_glass_dist2D).to_Vec3D(config.CHAMBER_DEPTH)
+
+            theta3 = math.asin(config.GLASS_REFRACTIVE_INDEX/config.CHAMBER_REFRACTIVE_INDEX*sin_theta2)
+            point = point2 + (camera_glass_vec2D*config.CHAMBER_DEPTH*math.tan(theta3)/camera_glass_dist2D).to_Vec3D(0)
+        else:
+            # the camera is just on top of the point, so no refraction is taking place
+            point = position
+            point.z = 0.
+
         self.camera = camera
-        self.position = position
+        self.position = point
 
     # Take another measurement (from a different camera) and return the "real" position of the object
     def merge(self, other: Type[Measurement], ref: Type[Reference]) -> Vec3D:
@@ -237,7 +291,6 @@ class Measurement:
         return f"""Measurement(camera={self.camera.number}, position={self.position})"""
 
 
-class Fiducial:
+class Fiducial(Measurement):
     def __init__(self, camera: Type[Camera], position: Type[Vec3D]):
-        self.camera = camera
-        self.position = position
+        super().__init__(camera, position)

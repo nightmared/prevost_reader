@@ -1,11 +1,30 @@
 from lib import *
 
-# physical device from which to read the measurements
+# serial device from which to read the measurements
 SERIAL_PORT = '/dev/ttyACM0'
 
 ### Physical parameters on the cameras and the fiducials
+# We have the following design:
+# The origin is the center of the back of the chamber. Every measurement and every object is relative to that point.
+# The bubble chamber currently described looks like this (ignoring the fact that all the cameras are not forming a line but a triangle):
+# |<--D-->|<-d->|<-----h----->|
+# |  n1   |  n2 |      n3     CAM1
+# |       |  G  |             |
+# O       |  L  |             CAM2
+# |       |  A  |             |
+# |       |  S  |             CAM3
+# |       |  S  |             |
 
-# The precision to which we want to operate. This parameter is used to consider wether a number is nearing zero (ah, the joys of floating point !).
+GLASS_WIDTH = 0.3
+CAMERA_GLASS_DISTANCE = 1.9
+CHAMBER_DEPTH = 1.1
+
+AIR_REFRACTIVE_INDEX = 1.000277 #(STP)
+GLASS_REFRACTIVE_INDEX = 1.52 #(crown glass)
+CHAMBER_REFRACTIVE_INDEX = 1.34 #(propane) to verify !
+
+
+# The degree of precision to which we want to operate. Usefule to consider whether a number is nearing zero (ah, the joys of floating point !).
 EPSILON = 1e-9
 
 CAMERAS_ANGLES = [
@@ -62,12 +81,12 @@ BASE_POINTS = [
 ]
 
 POINTS = [
-    Measurement(CAMERAS[0], CAMERAS[0].project_point(BASE_POINTS[0])+VIEWS_OFFSETS[0]),
-    Measurement(CAMERAS[1], CAMERAS[1].project_point(BASE_POINTS[0])+VIEWS_OFFSETS[1]),
-    Measurement(CAMERAS[0], CAMERAS[0].project_point(BASE_POINTS[1])+VIEWS_OFFSETS[0]),
-    Measurement(CAMERAS[1], CAMERAS[1].project_point(BASE_POINTS[1])+VIEWS_OFFSETS[1]),
-    Measurement(CAMERAS[0], CAMERAS[0].project_point(BASE_POINTS[2])+VIEWS_OFFSETS[0]),
-    Measurement(CAMERAS[1], CAMERAS[1].project_point(BASE_POINTS[2])+VIEWS_OFFSETS[1])
+    Measurement(CAMERAS[0], CAMERAS[0].project_from_chamber(BASE_POINTS[0])+VIEWS_OFFSETS[0]),
+    Measurement(CAMERAS[1], CAMERAS[1].project_from_chamber(BASE_POINTS[0])+VIEWS_OFFSETS[1]),
+    Measurement(CAMERAS[0], CAMERAS[0].project_from_chamber(BASE_POINTS[1])+VIEWS_OFFSETS[0]),
+    Measurement(CAMERAS[1], CAMERAS[1].project_from_chamber(BASE_POINTS[1])+VIEWS_OFFSETS[1]),
+    Measurement(CAMERAS[0], CAMERAS[0].project_from_chamber(BASE_POINTS[2])+VIEWS_OFFSETS[0]),
+    Measurement(CAMERAS[1], CAMERAS[1].project_from_chamber(BASE_POINTS[2])+VIEWS_OFFSETS[1])
 ]
 
 print(BASE_POINTS[0]-POINTS[0].merge(POINTS[1], REFERENCES[0]))
