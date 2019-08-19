@@ -25,7 +25,7 @@ CHAMBER_REFRACTIVE_INDEX = 1.34 #(propane) to verify !
 
 
 # The degree of precision to which we want to operate. Usefule to consider whether a number is nearing zero (ah, the joys of floating point !).
-EPSILON = 1e-9
+EPSILON = 1e-10
 
 CAMERAS_ANGLES = [
     0,
@@ -75,8 +75,8 @@ REFERENCES = [
 ]
 
 BASE_POINTS = [
-    Vec3D(0.15, 0.25, 0.4),
-    Vec3D(0, 0.03, 0.05),
+    Vec3D(0.15, 0.25, 0.0),
+    Vec3D(0.8, 0.03, 0.05),
     Vec3D(-1.7, 2.55, 0.67),
 ]
 

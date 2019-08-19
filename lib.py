@@ -181,18 +181,19 @@ class Camera:
     def __str__(self):
         return f"""Camera(id={self.number}, position={self.position}, scale_factor={self.scaling})"""
 
+    # Get the source, given the virtual image, assuming the point is IN the chamber
     def reverse_refraction(self, position: Type[Vec3D]):
         # Convert the position from the virtual position (aka. *after* refraction) against the glass to the (offseted, and without z-axis information) position:
         # 1) project the virtual position on the ray that goes from the virtual position to the camera, with a z-value of CHAMBER_DEPTH + GLASS_WIDTH
         # 2) get the refraction angle
         # 3) get the refracion angle on the other side
         # 4) get the (x, y) coordinates of the ray, projected on the back of the chamber (z=0)
-        camera_glass_vec2D = self.position.to_Vec2D() - position.to_Vec2D()
-        camera_glass_dist2D = camera_glass_vec2D.norm()
-        if camera_glass_dist2D > config.EPSILON:
-            point1 = position.move_along_z(
+        point1 = position.move_along_z(
                 position - self.position,
                 config.CHAMBER_DEPTH + config.GLASS_WIDTH)
+        camera_glass_vec2D = self.position.to_Vec2D() - point1.to_Vec2D()
+        camera_glass_dist2D = camera_glass_vec2D.norm()
+        if camera_glass_dist2D > config.EPSILON:
             theta1 = math.atan2(camera_glass_dist2D, config.CAMERA_GLASS_DISTANCE)
 
             # Snell-Descartes law in action !
@@ -217,24 +218,15 @@ class Camera:
     def project_point(self, pos: Type[Vec3D]) -> Type[Vec3D]:
         # TODO: compute the variation in scaling depending of z
 
-        if abs(pos.z) > config.EPSILON:
-            # pos-self.position is the direction vector
-            vec = self.position.move_along_z(pos - self.position, 0.)
-        else:
-            vec = pos
-
         # Apply the offset and camera scaling again
         theta = self.position.get_coordinates_spherical()[1]
-        return vec.rotate_around_origin(theta, 0) * self.scaling
+        return pos.rotate_around_origin(theta, 0) * self.scaling
 
     # Project a point onto the camera screen, AND apply refraction effects
     def project_from_chamber(self, pos: Type[Vec3D]) -> Type[Vec3D]:
-        # pos-self.position is the direction vector
-        pos = self.position.move_along_z(pos - self.position, 0.)
-
         # just on top, do not apply any refraction to it
         if pos.to_Vec2D().distance(self.position.to_Vec2D()) < config.EPSILON:
-            return self.project_point(pos)
+            return self.project_point(Vec3D(pos.x, pos.y, 0))
 
         # determine the direction of the refractions
         direction_vec = pos - self.position
@@ -256,7 +248,10 @@ class Camera:
             if nb_iter-(nb_iter//30)*30== 0:
                 delta /= 5
 
-        return self.project_point(pos + direction_vec * x)
+        # Now that we know the virtual origin, we can determine the incidence angle and project this point so that its z coordinate is zero
+        vec = self.position.move_along_z(pos + direction_vec * x - self.position, 0.)
+
+        return self.project_point(vec)
 
 
 class Reference:
@@ -294,15 +289,15 @@ class Reference:
         cam2 = fiducial1[1].camera
         offset_cam2 = fiducial1[1].position-cam2.project_from_chamber(fiducial1_real_pos)
 
-        # Try to compute the rotation between the two cameras, relative to the origin
-        (theta_cam, phi_cam) = cam1.position.get_angle(cam2.position)
+        # Angle of each cameras with the x axis
+        theta_cam1 = cam1.position.get_coordinates_spherical()[1]
+        theta_cam2 = cam2.position.get_coordinates_spherical()[1]
 
         # vector between the two fiducials
-        delta_fid_cam0 = (cam1.reverse_refraction((fiducial2[0].position-offset_cam1)/cam1.scaling) - cam1.reverse_refraction((fiducial1[0].position-offset_cam1)/cam1.scaling))
-        # Sanity check: ensure this is the same fiducial by comparing the vectors from the first to the second fiducial in both camera views
-        delta_fid_cam1 = (cam2.reverse_refraction((fiducial2[1].position-offset_cam2)/cam2.scaling) - cam2.reverse_refraction((fiducial1[1].position-offset_cam2)/cam2.scaling)).rotate_around_origin(theta_cam, phi_cam)
-        print(delta_fid_cam1, delta_fid_cam0, delta_fid_cam1.distance(delta_fid_cam0))
-        if delta_fid_cam0.distance(delta_fid_cam1) > config.EPSILON:
+        delta_fid_cam1 = cam1.reverse_refraction(((fiducial1[0].position-offset_cam1)/cam1.scaling).rotate_around_origin(-theta_cam1, 0)) - cam1.reverse_refraction(((fiducial2[0].position-offset_cam1)/cam1.scaling).rotate_around_origin(-theta_cam1, 0))
+        # Sanity check: ensure this is the same fiducial in both camera views by comparing the vectors from the first to the second one
+        delta_fid_cam2 = cam2.reverse_refraction(((fiducial1[1].position-offset_cam2)/cam2.scaling).rotate_around_origin(-theta_cam2, 0)) - cam2.reverse_refraction(((fiducial2[1].position-offset_cam2)/cam2.scaling).rotate_around_origin(-theta_cam2, 0))
+        if delta_fid_cam1.distance(delta_fid_cam2) > 10*config.EPSILON:
             raise AssertionError(
                 "You must use the same fiducials when trying to establish a reference")
 
@@ -321,51 +316,47 @@ class Measurement:
     # Take another measurement (from a different camera) and return the "real"
     # position of the object
     def merge(self, other: Type[Measurement], ref: Type[Reference]) -> Vec3D:
-        if other.camera.number == self.camera.number:
-            raise AssertionError(
-                "The two measurements come from the same camera !")
-
         if ref.cam1.number != self.camera.number or ref.cam2.number != other.camera.number:
             raise AssertionError(
                 "The reference use to localize measurements is based on different cameras !")
 
         # correct the offset of each view and scale the position of the object
         # according to the camera scaling factor
-        theta1 = self.camera.position.get_coordinates_spherical()[1]
-        vec1 = (self.camera.reverse_refraction(self.position - ref.offset_cam1) /
-                self.camera.scaling).rotate_around_origin(-theta1, 0) - self.camera.position
-        theta2 = other.camera.position.get_coordinates_spherical()[1]
-        vec2 = (other.camera.reverse_refraction(other.position - ref.offset_cam2) /
-                other.camera.scaling).rotate_around_origin(-theta2, 0) - other.camera.position
+        theta1 = ref.cam1.position.get_coordinates_spherical()[1]
+        vec1 = ref.cam1.reverse_refraction(((self.position - ref.offset_cam1) /
+                ref.cam1.scaling).rotate_around_origin(-theta1, 0)) - ref.cam1.position
+        theta2 = ref.cam2.position.get_coordinates_spherical()[1]
+        vec2 = ref.cam2.reverse_refraction(((other.position - ref.offset_cam2) /
+                ref.cam2.scaling).rotate_around_origin(-theta2, 0)) - ref.cam2.position
 
         # This time we can generate the following system:
-        # vec1.x*t1+self.camera.position.x=vec2.x*t2+other.camera.position.x=realx
-        # vec1.y*t1+self.camera.position.y=vec2.y*t2+other.camera.position.y=realy (useless for us)
-        # vec1.z*t1+self.camera.position.z=vec2.z*t2+other.camera.position.z=realz
+        # vec1.x*t1+ref.cam1.position.x=vec2.x*t2+ref.cam2.position.x=realx
+        # vec1.y*t1+ref.cam1.position.y=vec2.y*t2+ref.cam2.position.y=realy (useless for us)
+        # vec1.z*t1+ref.cam1.position.z=vec2.z*t2+ref.cam2.position.z=realz
         # Great, so let's solve this and get *real_z* ;)
         if abs(vec1.x) < config.EPSILON:
             if abs(vec1.x) < config.EPSILON and abs(vec1.y) < config.EPSILON:
                 # We are just under the camera, so we know the x and y
                 # coordinates: thoses of the camera
                 if abs(vec2.x) > config.EPSILON:
-                    t2 = (self.camera.position.x - other.camera.position.x) / vec2.x
+                    t2 = (ref.cam1.position.x - ref.cam2.position.x) / vec2.x
                 else:
-                    t2 = (self.camera.position.y - other.camera.position.y) / vec2.y
-                realz = vec2.z * t2 + other.camera.position.z
+                    t2 = (ref.cam1.position.y - ref.cam2.position.y) / vec2.y
+                realz = vec2.z * t2 + ref.cam2.position.z
             else:
                 # let's use the y coordinate instead
-                t2 = (vec1.z * (other.camera.position.y - self.camera.position.y) + vec1.y *
-                      (other.camera.position.z - self.camera.position.z)) / (vec1.y * vec2.z - vec1.z * vec2.y)
+                t2 = (vec1.z * (ref.cam2.position.y - ref.cam1.position.y) + vec1.y *
+                      (ref.cam2.position.z - ref.cam1.position.z)) / (vec1.y * vec2.z - vec1.z * vec2.y)
 
-                realx = vec2.x * t2 + other.camera.position.x
-                realy = vec2.y * t2 + other.camera.position.y
-                realz = vec2.z * t2 + other.camera.position.z
+                realx = vec2.x * t2 + ref.cam2.position.x
+                realy = vec2.y * t2 + ref.cam2.position.y
+                realz = vec2.z * t2 + ref.cam2.position.z
         else:
-            t2 = (vec1.z * (other.camera.position.x - self.camera.position.x) + vec1.x *
-                  (other.camera.position.z - self.camera.position.z)) / (vec1.x * vec2.z - vec1.z * vec2.x)
-            realx = vec2.x * t2 + other.camera.position.x
-            realy = vec2.y * t2 + other.camera.position.y
-            realz = vec2.z * t2 + other.camera.position.z
+            t2 = (vec1.z * (ref.cam2.position.x - ref.cam1.position.x) + vec1.x *
+                  (ref.cam2.position.z - ref.cam1.position.z)) / (vec1.x * vec2.z - vec1.z * vec2.x)
+            realx = vec2.x * t2 + ref.cam2.position.x
+            realy = vec2.y * t2 + ref.cam2.position.y
+            realz = vec2.z * t2 + ref.cam2.position.z
 
         return Vec3D(realx, realy, realz)
 
