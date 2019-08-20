@@ -204,29 +204,24 @@ class Camera:
 
             theta3 = math.asin(config.GLASS_REFRACTIVE_INDEX /
                                config.CHAMBER_REFRACTIVE_INDEX * sin_theta2)
-            point = point2 + (camera_glass_vec2D * config.CHAMBER_DEPTH *
+            point = point2 + (camera_glass_vec2D * (config.CHAMBER_DEPTH - position.z) *
                               math.tan(theta3) / camera_glass_dist2D).to_Vec3D(0)
         else:
             # the camera is just on top of the point, so no refraction is
             # taking place
             point = position
 
-        point.z = 0.
+        point.z = position.z
         return point
-
-    # Project a point onto the camera screen, given its position in 3D space
-    def project_point(self, pos: Type[Vec3D]) -> Type[Vec3D]:
-        # TODO: compute the variation in scaling depending of z
-
-        # Apply the offset and camera scaling again
-        theta = self.position.get_coordinates_spherical()[1]
-        return pos.rotate_around_origin(theta, 0) * self.scaling
 
     # Project a point onto the camera screen, AND apply refraction effects
     def project_from_chamber(self, pos: Type[Vec3D]) -> Type[Vec3D]:
+        theta = self.position.get_coordinates_spherical()[1]
         # just on top, do not apply any refraction to it
         if pos.to_Vec2D().distance(self.position.to_Vec2D()) < config.EPSILON:
-            return self.project_point(Vec3D(pos.x, pos.y, 0))
+            pos.z = 0
+            # Apply the offset and camera scaling
+            return pos.rotate_around_origin(theta, 0) * self.scaling
 
         # determine the direction of the refractions
         direction_vec = pos - self.position
@@ -249,9 +244,10 @@ class Camera:
                 delta /= 5
 
         # Now that we know the virtual origin, we can determine the incidence angle and project this point so that its z coordinate is zero
-        vec = self.position.move_along_z(pos + direction_vec * x - self.position, 0.)
+        #vec = self.position.move_along_z(pos + direction_vec * x - self.position, 0.)
+        vec = pos + direction_vec * x
 
-        return self.project_point(vec)
+        return vec.rotate_around_origin(theta, 0) * self.scaling
 
 
 class Reference:
