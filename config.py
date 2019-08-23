@@ -1,4 +1,5 @@
 from lib import *
+import numpy as np
 
 # serial device from which to read the measurements
 SERIAL_PORT = '/dev/ttyACM0'
@@ -75,20 +76,31 @@ REFERENCES = [
 ]
 
 BASE_POINTS = [
-    Vec3D(0.15, 0.25, 0.0),
-    Vec3D(0.8, 0.03, 0.05),
-    Vec3D(-1.7, 2.55, 0.67),
 ]
 
 POINTS = [
-    Measurement(CAMERAS[0], CAMERAS[0].project_from_chamber(BASE_POINTS[0])+VIEWS_OFFSETS[0]),
-    Measurement(CAMERAS[1], CAMERAS[1].project_from_chamber(BASE_POINTS[0])+VIEWS_OFFSETS[1]),
-    Measurement(CAMERAS[0], CAMERAS[0].project_from_chamber(BASE_POINTS[1])+VIEWS_OFFSETS[0]),
-    Measurement(CAMERAS[1], CAMERAS[1].project_from_chamber(BASE_POINTS[1])+VIEWS_OFFSETS[1]),
-    Measurement(CAMERAS[0], CAMERAS[0].project_from_chamber(BASE_POINTS[2])+VIEWS_OFFSETS[0]),
-    Measurement(CAMERAS[1], CAMERAS[1].project_from_chamber(BASE_POINTS[2])+VIEWS_OFFSETS[1])
 ]
 
-print(BASE_POINTS[0]-POINTS[0].merge(POINTS[1], REFERENCES[0]))
-print(BASE_POINTS[1]-POINTS[2].merge(POINTS[3], REFERENCES[0]))
-print(BASE_POINTS[2]-POINTS[4].merge(POINTS[5], REFERENCES[0]))
+def generate_circle(radius, center, nb_points, arc_length=2*math.pi):
+    base = center+Vec3D(radius, 0, 0)
+    for i in range(0, nb_points):
+        BASE_POINTS.append(base.rotate_around_origin(i*arc_length/nb_points, origin=center))
+        POINTS.append(Measurement(CAMERAS[0], CAMERAS[0].project_from_chamber(BASE_POINTS[i])+VIEWS_OFFSETS[0]))
+        POINTS.append(Measurement(CAMERAS[1], CAMERAS[1].project_from_chamber(BASE_POINTS[i])+VIEWS_OFFSETS[1]))
+
+generate_circle(0.25, Vec3D(0.3, 0.4, 0.8), 150, arc_length = 0.5*math.pi)
+
+
+
+
+maxd = 0
+for i in range(0, len(BASE_POINTS)):
+    mu = 0
+    sigma = 1
+    delta = 1e-6
+    POINTS_a = Measurement(POINTS[2*i].camera, POINTS[2*i].position+Vec3D(delta*np.random.normal(mu, sigma), delta*np.random.normal(mu, sigma), delta*np.random.normal(mu, sigma)))
+    POINTS_b = Measurement(POINTS[2*i+1].camera, POINTS[2*i+1].position+Vec3D(delta*np.random.normal(mu, sigma), delta*np.random.normal(mu, sigma), delta*np.random.normal(mu, sigma)))
+    tmp = BASE_POINTS[i].distance(POINTS_a.merge(POINTS_b, REFERENCES[0]))
+    if tmp > maxd:
+        maxd = tmp
+print(maxd)

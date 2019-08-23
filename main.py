@@ -24,15 +24,19 @@ def read_from_serial() -> List[Type[lib.Measurement]]:
         raise AssertionError(f"""Failed to open the serial device {config.SERIAL_PORT}, exiting...""")
     ser.timeout = 0.2
     print(f"""Reading values from the serial port {ser.name}. Press ^C to interrupt the capture""")
+    event = 0
     while continue_capturing_data:
         line = ser.readline()[:-1]
+        if line.startswith("validate:"):
+            event += 1
+            continue
         pos = line.split(',')
         if len(pos) == 3:
             try:
                 cam = int(pos[0])+1
                 x = int(pos[1])
                 y = int(pos[2])
-                results.append(Measurement(config.CAMERAS[cam], Vec2D(x, y)))
+                results.append((event, Measurement(config.CAMERAS[cam], Vec2D(x, y))))
             except ValueError:
                 pass
 
@@ -53,8 +57,8 @@ def measure() -> str:
         fieldnames = ['camera', 'x', 'y']
         writer = csv.DictWriter(f, fieldsnames=fieldnames)
         writer.writeheader()
-        for m in results:
-            writer.writerow({'camera': m.camera, 'x': m.position.x, 'y': m.position.y})
+        for (event, m) in results:
+            writer.writerow({'event': event, 'camera': m.camera, 'x': m.position.x, 'y': m.position.y})
 
     # Reset the signal handler to the default one
     signal.signal(signal.SIGINT, signal.SIG_DFL)

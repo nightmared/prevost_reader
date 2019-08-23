@@ -53,6 +53,10 @@ class Vec3D:
         self.y = y
         self.z = z
 
+
+    def copy(self) -> Type[Vec3D]:
+        return Vec3D(self.x, self.y, self.z)
+
     @classmethod
     def Cylindrical(cls, r, theta, z):
         return cls(r * math.cos(theta), r * math.sin(theta), z)
@@ -204,14 +208,14 @@ class Camera:
 
             theta3 = math.asin(config.GLASS_REFRACTIVE_INDEX /
                                config.CHAMBER_REFRACTIVE_INDEX * sin_theta2)
-            point = point2 + (camera_glass_vec2D * (config.CHAMBER_DEPTH - position.z) *
+            point = point2 + (camera_glass_vec2D * config.CHAMBER_DEPTH *
                               math.tan(theta3) / camera_glass_dist2D).to_Vec3D(0)
         else:
             # the camera is just on top of the point, so no refraction is
             # taking place
-            point = position
+            point = position.copy()
 
-        point.z = position.z
+        point.z = 0
         return point
 
     # Project a point onto the camera screen, AND apply refraction effects
@@ -219,13 +223,16 @@ class Camera:
         theta = self.position.get_coordinates_spherical()[1]
         # just on top, do not apply any refraction to it
         if pos.to_Vec2D().distance(self.position.to_Vec2D()) < config.EPSILON:
-            pos.z = 0
+            v = pos.copy()
+            v.z = 0
             # Apply the offset and camera scaling
-            return pos.rotate_around_origin(theta, 0) * self.scaling
+            return v.rotate_around_origin(theta, 0) * self.scaling
 
         # determine the direction of the refractions
         direction_vec = pos - self.position
         direction_vec.z = 0
+
+        tmp = pos
 
         # This iterative algorithm try to determine the correct path for a ray going from 'pos'
         # and reaching the camera, undergoing two diffractions en route
@@ -233,8 +240,12 @@ class Camera:
 
         delta = 0.1
         nb_iter = 0
-        while self.reverse_refraction(pos + direction_vec * x).distance(pos) > config.EPSILON and nb_iter < 500:
-            if (pos-self.reverse_refraction(pos+direction_vec*x)).x/direction_vec.x < 0:
+        while nb_iter < 500:
+            rev_point = self.reverse_refraction(pos+direction_vec*x)
+            rev_point = rev_point.move_along_z(self.position - rev_point, pos.z)
+            if rev_point.distance(pos) < config.EPSILON:
+                break;
+            if (pos-rev_point).x/direction_vec.x < 0:
                 x = (1-delta) * x
             else:
                 x = (1+delta) * x
@@ -244,8 +255,7 @@ class Camera:
                 delta /= 5
 
         # Now that we know the virtual origin, we can determine the incidence angle and project this point so that its z coordinate is zero
-        #vec = self.position.move_along_z(pos + direction_vec * x - self.position, 0.)
-        vec = pos + direction_vec * x
+        vec = self.position.move_along_z(pos + direction_vec * x - self.position, 0.)
 
         return vec.rotate_around_origin(theta, 0) * self.scaling
 
@@ -293,7 +303,7 @@ class Reference:
         delta_fid_cam1 = cam1.reverse_refraction(((fiducial1[0].position-offset_cam1)/cam1.scaling).rotate_around_origin(-theta_cam1, 0)) - cam1.reverse_refraction(((fiducial2[0].position-offset_cam1)/cam1.scaling).rotate_around_origin(-theta_cam1, 0))
         # Sanity check: ensure this is the same fiducial in both camera views by comparing the vectors from the first to the second one
         delta_fid_cam2 = cam2.reverse_refraction(((fiducial1[1].position-offset_cam2)/cam2.scaling).rotate_around_origin(-theta_cam2, 0)) - cam2.reverse_refraction(((fiducial2[1].position-offset_cam2)/cam2.scaling).rotate_around_origin(-theta_cam2, 0))
-        if delta_fid_cam1.distance(delta_fid_cam2) > 10*config.EPSILON:
+        if delta_fid_cam1.distance(delta_fid_cam2) > 4*config.EPSILON:
             raise AssertionError(
                 "You must use the same fiducials when trying to establish a reference")
 
