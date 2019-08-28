@@ -186,37 +186,47 @@ class Camera:
         return f"""Camera(id={self.number}, position={self.position}, scale_factor={self.scaling})"""
 
     # Get the source, given the virtual image, assuming the point is IN the chamber
-    def reverse_refraction(self, position: Type[Vec3D]):
+    # This function also gives us the vector that goes from the real point to the frontier between the chamber and the glass, aka. the ray direction
+    def reverse_refraction_with_ray_direction(self, position: Type[Vec3D]):
         # Convert the position from the virtual position (aka. *after* refraction) against the glass to the (offseted, and without z-axis information) position:
         # 1) project the virtual position on the ray that goes from the virtual position to the camera, with a z-value of CHAMBER_DEPTH + GLASS_WIDTH
         # 2) get the refraction angle
         # 3) get the refracion angle on the other side
         # 4) get the (x, y) coordinates of the ray, projected on the back of the chamber (z=0)
         point1 = position.move_along_z(
-                position - self.position,
+                self.position - position,
                 config.CHAMBER_DEPTH + config.GLASS_WIDTH)
         camera_glass_vec2D = self.position.to_Vec2D() - point1.to_Vec2D()
         camera_glass_dist2D = camera_glass_vec2D.norm()
+        direction_vec = camera_glass_vec2D/camera_glass_dist2D
         if camera_glass_dist2D > config.EPSILON:
             theta1 = math.atan2(camera_glass_dist2D, config.CAMERA_GLASS_DISTANCE)
 
             # Snell-Descartes law in action !
             sin_theta2 = config.AIR_REFRACTIVE_INDEX / \
                 config.GLASS_REFRACTIVE_INDEX * math.sin(theta1)
-            point2 = point1 + (camera_glass_vec2D * config.GLASS_WIDTH * math.tan(
-                math.asin(sin_theta2)) / camera_glass_dist2D).to_Vec3D(config.CHAMBER_DEPTH)
+            point2 = point1 + (direction_vec * config.GLASS_WIDTH * math.tan(
+                math.asin(sin_theta2))).to_Vec3D(0)
+            point2.z = config.CHAMBER_DEPTH
 
             theta3 = math.asin(config.GLASS_REFRACTIVE_INDEX /
                                config.CHAMBER_REFRACTIVE_INDEX * sin_theta2)
-            point = point2 + (camera_glass_vec2D * config.CHAMBER_DEPTH *
-                              math.tan(theta3) / camera_glass_dist2D).to_Vec3D(0)
+            point = point2 + (direction_vec * (position.z-config.CHAMBER_DEPTH) *
+                              math.tan(theta3)).to_Vec3D(0)
+
+            point.z = position.z
+            ray = point2 - point
+
+            return (point, ray)
         else:
             # the camera is just on top of the point, so no refraction is
             # taking place
             point = position.copy()
+            return Vec3D(0, 0, config.CHAMBER_DEPTH-position.z)
 
-        point.z = 0
-        return point
+
+    def reverse_refraction(self, position: Type[Vec3D]):
+        return self.reverse_refraction_with_ray_direction(position)[0]
 
     # Project a point onto the camera screen, AND apply refraction effects
     def project_from_chamber(self, pos: Type[Vec3D]) -> Type[Vec3D]:
@@ -228,34 +238,31 @@ class Camera:
             # Apply the offset and camera scaling
             return v.rotate_around_origin(theta, 0) * self.scaling
 
-        # determine the direction of the refractions
+        # determine the plane where the refractions occur
         direction_vec = pos - self.position
         direction_vec.z = 0
 
-        tmp = pos
-
         # This iterative algorithm try to determine the correct path for a ray going from 'pos'
         # and reaching the camera, undergoing two diffractions en route
-        x = 0.5
+        x = 0
 
-        delta = 0.1
+        delta = config.CHAMBER_DIAMETER/20
         nb_iter = 0
         while nb_iter < 500:
-            rev_point = self.reverse_refraction(pos+direction_vec*x)
-            rev_point = rev_point.move_along_z(self.position - rev_point, pos.z)
+            (rev_point, ray_direction) = self.reverse_refraction_with_ray_direction(pos+direction_vec*x)
             if rev_point.distance(pos) < config.EPSILON:
                 break;
             if (pos-rev_point).x/direction_vec.x < 0:
-                x = (1-delta) * x
+                x = x-delta
             else:
-                x = (1+delta) * x
+                x = x+delta
 
             nb_iter += 1
-            if nb_iter-(nb_iter//30)*30== 0:
-                delta /= 5
+            if nb_iter-(nb_iter//20)*20 == 0:
+                delta /= 20
 
-        # Now that we know the virtual origin, we can determine the incidence angle and project this point so that its z coordinate is zero
-        vec = self.position.move_along_z(pos + direction_vec * x - self.position, 0.)
+        # Now that we know the virtual origin, we can project this point so that its z coordinate is zero
+        vec = self.position.move_along_z((pos + direction_vec * x) - self.position, 0.)
 
         return vec.rotate_around_origin(theta, 0) * self.scaling
 
@@ -329,11 +336,13 @@ class Measurement:
         # correct the offset of each view and scale the position of the object
         # according to the camera scaling factor
         theta1 = ref.cam1.position.get_coordinates_spherical()[1]
-        vec1 = ref.cam1.reverse_refraction(((self.position - ref.offset_cam1) /
-                ref.cam1.scaling).rotate_around_origin(-theta1, 0)) - ref.cam1.position
+        (vec1, ray1) = ref.cam1.reverse_refraction_with_ray_direction(((self.position - ref.offset_cam1) /
+                ref.cam1.scaling).rotate_around_origin(-theta1, 0))
+        vec1 = ref.cam1.position - vec1.move_along_z(ray1, 0)
         theta2 = ref.cam2.position.get_coordinates_spherical()[1]
-        vec2 = ref.cam2.reverse_refraction(((other.position - ref.offset_cam2) /
-                ref.cam2.scaling).rotate_around_origin(-theta2, 0)) - ref.cam2.position
+        (vec2, ray2) = ref.cam2.reverse_refraction_with_ray_direction(((other.position - ref.offset_cam2) /
+                ref.cam2.scaling).rotate_around_origin(-theta2, 0))
+        vec2 = ref.cam2.position - vec2.move_along_z(ray2, 0)
 
         # This time we can generate the following system:
         # vec1.x*t1+ref.cam1.position.x=vec2.x*t2+ref.cam2.position.x=realx
@@ -369,6 +378,8 @@ class Measurement:
     def __str__(self):
         return f"""Measurement(camera={self.camera.number}, position={self.position})"""
 
+    def __repr__(self):
+        return str(self)
 
 class Fiducial(Measurement):
     def __init__(self, camera: Type[Camera], position: Type[Vec3D]):

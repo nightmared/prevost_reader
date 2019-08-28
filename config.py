@@ -22,7 +22,7 @@ GLASS_WIDTH = 0.3
 CAMERA_GLASS_DISTANCE = 1.9
 CHAMBER_DEPTH = 1.1
 
-AIR_REFRACTIVE_INDEX = 1.000277 #(STP)
+AIR_REFRACTIVE_INDEX = 1.000277 # assuming Standard Temperature and Pression
 GLASS_REFRACTIVE_INDEX = 1.52 #(crown glass)
 CHAMBER_REFRACTIVE_INDEX = 1.34 #(propane) to verify !
 
@@ -91,7 +91,9 @@ def generate_circle(radius, center, nb_points, arc_length=2*math.pi):
         POINTS.append(Measurement(CAMERAS[0], CAMERAS[0].project_from_chamber(BASE_POINTS[i])+VIEWS_OFFSETS[0]))
         POINTS.append(Measurement(CAMERAS[1], CAMERAS[1].project_from_chamber(BASE_POINTS[i])+VIEWS_OFFSETS[1]))
 
-generate_circle(0.25, Vec3D(0.3, 0.4, 0.8), 150, arc_length = 0.5*math.pi)
+generate_circle(0.25, Vec3D(0.3, 0.4, 0.8), 150, arc_length = 1.5*math.pi)
+print(POINTS[0].merge(POINTS[1], REFERENCES[0]))
+exit(1)
 
 #maxd = 0
 #for i in range(0, len(BASE_POINTS)):
@@ -130,7 +132,10 @@ def approximate_curve(points) -> Tuple[Type[Vec3D], float]:
             total_y += (p.y-center_y)*((p.x-center_x)**2+(p.y-center_y)**2-radius**2)
         return -4*np.array([x[0]*curve_func(x, *points), total_x, total_y])
 
-    v = optimize.least_squares(curve_func, [0, 0, 0], args=points, jac=jac_curve_func, xtol=EPSILON, ftol=EPSILON, gtol=EPSILON, bounds=([0, 0, 0], [CHAMBER_DIAMETER, CHAMBER_DIAMETER, CHAMBER_DIAMETER]))
+    machine_epsilon = np.finfo(np.float64).eps
+    v = optimize.least_squares(curve_func, [0, 0, 0], args=points, jac=jac_curve_func, xtol=machine_epsilon, ftol=machine_epsilon, gtol=machine_epsilon, bounds=([0, 0, 0], [CHAMBER_DIAMETER, CHAMBER_DIAMETER, CHAMBER_DIAMETER]))
+    print(v.x)
 
-approximate_curve([BASE_POINTS[i] for i in points_a])
-approximate_curve([BASE_POINTS[i] for i in points_b])
+print(POINTS)
+approximate_curve([POINTS[2*i].position for i in points_a])
+approximate_curve([POINTS[2*i+1].position for i in points_b])
